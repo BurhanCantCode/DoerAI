@@ -5,10 +5,17 @@ struct OrangeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     @StateObject private var appState = AppState()
+    @State private var showOnboarding = false
+    @State private var permissionStatus = PermissionsManager.Status(
+        accessibility: false,
+        microphone: false,
+        screenRecording: false
+    )
 
     private let sessionManager: SessionManager
     private let sidecarManager = PythonSidecarManager()
     private let hotkeyManager = HotkeyManager()
+    private let permissionsManager = PermissionsManager()
 
     init() {
         let stt = AppleSpeechRecognizer()
@@ -44,6 +51,7 @@ struct OrangeApp: App {
                 }
             )
             .onAppear {
+                refreshPermissionStatus()
                 sidecarManager.startIfNeeded()
                 hotkeyManager.register(
                     onPress: { sessionManager.beginRecording(state: appState) },
@@ -53,7 +61,45 @@ struct OrangeApp: App {
             .onDisappear {
                 sidecarManager.stop()
             }
+            .sheet(isPresented: $showOnboarding) {
+                OnboardingView(
+                    status: permissionStatus,
+                    onRequestAccessibility: {
+                        _ = permissionsManager.promptAccessibilityPermission()
+                        permissionsManager.openSettingsAccessibility()
+                    },
+                    onRequestMicrophone: {
+                        Task {
+                            _ = await permissionsManager.requestMicrophonePermission()
+                            permissionsManager.openSettingsMicrophone()
+                            await MainActor.run {
+                                refreshPermissionStatus()
+                            }
+                        }
+                    },
+                    onRequestScreenRecording: {
+                        _ = permissionsManager.requestScreenRecordingPermission()
+                        permissionsManager.openSettingsScreenRecording()
+                    },
+                    onRefresh: {
+                        refreshPermissionStatus()
+                    }
+                )
+            }
         }
         .windowResizability(.contentSize)
+        .commands {
+            CommandMenu("Orange") {
+                Button("Permissions Setup") {
+                    refreshPermissionStatus()
+                    showOnboarding = true
+                }
+            }
+        }
+    }
+
+    private func refreshPermissionStatus() {
+        permissionStatus = permissionsManager.currentStatus()
+        showOnboarding = !permissionStatus.allGranted
     }
 }
