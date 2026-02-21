@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { Syncopate, Space_Grotesk } from 'next/font/google';
 
 const syncopate = Syncopate({ subsets: ['latin'], weight: ['400', '700'], variable: '--font-display' });
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${syncopate.variable} ${spaceGrotesk.variable} dark scroll-smooth`}>
       <body className="antialiased font-body bg-[#030305] text-white selection:bg-orange-500 selection:text-white cursor-none overflow-x-hidden">
         {children}
+        <Analytics />
       </body>
     </html>
   );
