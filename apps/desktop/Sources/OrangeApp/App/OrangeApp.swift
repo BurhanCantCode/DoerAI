@@ -35,30 +35,20 @@ struct OrangeApp: App {
 
     var body: some Scene {
         WindowGroup("Orange") {
-            OverlayView(
-                appState: appState,
-                onStart: {
-                    sessionManager.beginRecording(state: appState)
-                },
-                onStop: {
-                    Task { await sessionManager.stopRecordingAndPlan(state: appState) }
-                },
-                onConfirm: {
-                    Task { await sessionManager.confirmAndExecute(state: appState) }
-                },
-                onCancel: {
-                    sessionManager.cancel(state: appState)
-                }
-            )
+            Color.clear
+            .frame(width: 1, height: 1)
             .onAppear {
                 refreshPermissionStatus()
                 sidecarManager.startIfNeeded()
+                OverlayWindow.shared.attach(rootView: overlayContent())
+                OverlayWindow.shared.show()
                 hotkeyManager.register(
                     onPress: { sessionManager.beginRecording(state: appState) },
                     onRelease: { Task { await sessionManager.stopRecordingAndPlan(state: appState) } }
                 )
             }
             .onDisappear {
+                OverlayWindow.shared.hide()
                 sidecarManager.stop()
             }
             .sheet(isPresented: $showOnboarding) {
@@ -101,5 +91,24 @@ struct OrangeApp: App {
     private func refreshPermissionStatus() {
         permissionStatus = permissionsManager.currentStatus()
         showOnboarding = !permissionStatus.allGranted
+    }
+
+    @ViewBuilder
+    private func overlayContent() -> some View {
+        OverlayView(
+            appState: appState,
+            onStart: {
+                sessionManager.beginRecording(state: appState)
+            },
+            onStop: {
+                Task { await sessionManager.stopRecordingAndPlan(state: appState) }
+            },
+            onConfirm: {
+                Task { await sessionManager.confirmAndExecute(state: appState) }
+            },
+            onCancel: {
+                sessionManager.cancel(state: appState)
+            }
+        )
     }
 }

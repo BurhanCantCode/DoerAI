@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -19,6 +20,7 @@ ActionKind = Literal[
 ]
 RiskLevel = Literal["low", "medium", "high"]
 ExecutionStatus = Literal["success", "failure", "partial"]
+EventSeverity = Literal["info", "warning", "error"]
 
 
 class AppMetadata(BaseModel):
@@ -85,6 +87,39 @@ class PlanRequest(BaseModel):
         return value
 
 
+class PlanSimulationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = SCHEMA_VERSION_CURRENT
+    session_id: str = Field(min_length=1)
+    transcript: str = Field(min_length=1, max_length=4000)
+    app: AppMetadata | None = None
+    preferences: PlannerPreferences | None = None
+
+    @field_validator("schema_version")
+    @classmethod
+    def schema_version_supported(cls, value: int) -> int:
+        if value < SCHEMA_VERSION_MIN or value > SCHEMA_VERSION_CURRENT:
+            raise ValueError(
+                f"Unsupported schema_version={value}; supported=[{SCHEMA_VERSION_MIN}, {SCHEMA_VERSION_CURRENT}]"
+            )
+        return value
+
+
+class PlanSimulationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = SCHEMA_VERSION_CURRENT
+    session_id: str
+    is_valid: bool
+    parse_errors: list[str] = Field(default_factory=list)
+    risk_level: RiskLevel
+    requires_confirmation: bool
+    summary: str
+    proposed_actions_count: int = 0
+    recovery_guidance: str | None = None
+
+
 class VerifyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -124,3 +159,35 @@ class StreamEvent(BaseModel):
     event: str
     message: str
     progress: int | None = Field(default=None, ge=0, le=100)
+    step_id: str | None = None
+    severity: EventSeverity = "info"
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class ModelInfo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    app: str | None = None
+    model: str
+    reason: str
+
+
+class ModelsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = SCHEMA_VERSION_CURRENT
+    routing: list[ModelInfo]
+    feature_flags: dict[str, str]
+
+
+class TelemetryEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(min_length=1)
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    stage: str
+    app: str | None = None
+    action_kind: str | None = None
+    status: str
+    latency_ms: int | None = Field(default=None, ge=0)
+    error_code: str | None = None

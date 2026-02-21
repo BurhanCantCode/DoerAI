@@ -60,3 +60,45 @@ def test_verify_failure_returns_corrective_action() -> None:
     body = response.json()
     assert body["status"] == "failure"
     assert len(body["corrective_actions"]) == 1
+
+
+def test_plan_simulate_returns_risk() -> None:
+    payload = {
+        "schema_version": 1,
+        "session_id": "session-3",
+        "transcript": "open Safari and go to openai.com",
+        "app": {"name": "Finder"},
+    }
+    response = client.post("/v1/plan/simulate", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session_id"] == "session-3"
+    assert "risk_level" in body
+    assert body["proposed_actions_count"] >= 1
+
+
+def test_models_endpoint() -> None:
+    response = client.get("/v1/models")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema_version"] == 1
+    assert isinstance(body["routing"], list)
+    assert isinstance(body["feature_flags"], dict)
+
+
+def test_telemetry_round_trip() -> None:
+    event = {
+        "session_id": "session-t1",
+        "stage": "executing",
+        "status": "success",
+        "latency_ms": 123,
+    }
+    post_response = client.post("/v1/telemetry", json=event)
+    assert post_response.status_code == 200
+    assert post_response.json()["status"] == "accepted"
+
+    get_response = client.get("/v1/telemetry?limit=1")
+    assert get_response.status_code == 200
+    body = get_response.json()
+    assert len(body["events"]) == 1
+    assert body["events"][0]["session_id"] == "session-t1"

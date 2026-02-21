@@ -9,6 +9,7 @@ final class AppState: ObservableObject {
     @Published var statusText: String = "Ready"
     @Published var actionPlan: ActionPlan?
     @Published var safetyPrompts: [SafetyPrompt] = []
+    @Published var safetyAuditTrail: [SafetyDecisionRecord] = []
     @Published var executionResult: ExecutionResult?
     @Published var plannerEvents: [PlannerStreamEvent] = []
 

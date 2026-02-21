@@ -11,6 +11,7 @@ protocol SpeechToTextService {
     func setPartialHandler(_ handler: (@Sendable (String) -> Void)?)
     func start()
     func stop() async throws -> TranscriptResult
+    func cancel()
 }
 
 enum SpeechRecognitionError: LocalizedError {
@@ -66,11 +67,7 @@ final class AppleSpeechRecognizer: NSObject, SpeechToTextService {
             throw startError
         }
 
-        audioEngine.stop()
-        if audioEngine.inputNode.numberOfInputs > 0 {
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
-        recognitionRequest?.endAudio()
+        shutdownRecognition()
 
         // Allow the recognition task to flush final tokens.
         try? await Task.sleep(nanoseconds: 250_000_000)
@@ -85,6 +82,12 @@ final class AppleSpeechRecognizer: NSObject, SpeechToTextService {
             throw SpeechRecognitionError.emptyTranscript
         }
         return TranscriptResult(fullText: text, partials: snapshot.1)
+    }
+
+    func cancel() {
+        shutdownRecognition()
+        recognitionTask?.cancel()
+        recognitionTask = nil
     }
 
     private func requestSpeechAuthorizationAndStart() {
@@ -173,6 +176,14 @@ final class AppleSpeechRecognizer: NSObject, SpeechToTextService {
             partials = []
             startError = nil
         }
+    }
+
+    private func shutdownRecognition() {
+        audioEngine.stop()
+        if audioEngine.inputNode.numberOfInputs > 0 {
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
+        recognitionRequest?.endAudio()
     }
 }
 

@@ -25,6 +25,49 @@ final class HTTPPlannerClient: PlannerClient {
         return try JSONDecoder().decode(ActionPlan.self, from: data)
     }
 
+    func simulate(request: PlanSimulationRequest) async throws -> PlanSimulationResponse {
+        let endpoint = baseURL.appendingPathComponent("/v1/plan/simulate")
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try JSONEncoder().encode(request)
+
+        let (data, response) = try await session.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200 ... 299).contains(httpResponse.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+
+        return try JSONDecoder().decode(PlanSimulationResponse.self, from: data)
+    }
+
+    func models() async throws -> ModelsResponse {
+        let endpoint = baseURL.appendingPathComponent("/v1/models")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200 ... 299).contains(httpResponse.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(ModelsResponse.self, from: data)
+    }
+
+    func telemetry(event: SessionTelemetryEvent) async {
+        do {
+            let endpoint = baseURL.appendingPathComponent("/v1/telemetry")
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(event)
+            _ = try await session.data(for: request)
+        } catch {
+            Logger.error("Telemetry upload failed: \(error.localizedDescription)")
+        }
+    }
+
     func verify(
         sessionId: String,
         plan: ActionPlan,

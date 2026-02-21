@@ -18,6 +18,8 @@ class AdapterResult:
     actions: list[Action]
     confidence: float
     summary: str
+    warnings: list[str]
+    recovery_guidance: str | None = None
 
 
 class MacOSUseAdapter:
@@ -32,6 +34,17 @@ class MacOSUseAdapter:
         self._vendor_loaded = False
         self._important_rules = ""
         self._load_vendor_prompt_rules()
+
+    _allowed_action_kinds = {
+        "click",
+        "type",
+        "key_combo",
+        "scroll",
+        "open_app",
+        "run_applescript",
+        "select_menu_item",
+        "wait",
+    }
 
     def _load_vendor_prompt_rules(self) -> None:
         vendor_path = settings.vendor_macos_use
@@ -111,6 +124,7 @@ class MacOSUseAdapter:
                 ],
                 confidence=0.92,
                 summary=f"Open {target}",
+                warnings=[],
             )
 
         url_match = re.search(r"(https?://\S+|\b\w+\.com\b)", text)
@@ -127,6 +141,7 @@ class MacOSUseAdapter:
                 ],
                 confidence=0.86,
                 summary=f"Navigate to {url}",
+                warnings=[],
             )
 
         if "reply" in text and "slack" in text:
@@ -146,6 +161,7 @@ class MacOSUseAdapter:
                 ],
                 confidence=0.78,
                 summary="Reply in Slack thread",
+                warnings=[],
             )
 
         # Safe default that keeps control deterministic and auditable.
@@ -160,6 +176,7 @@ class MacOSUseAdapter:
             ],
             confidence=0.6,
             summary="Type transcript in focused field",
+            warnings=[],
         )
 
     async def _plan_with_openai(
@@ -176,7 +193,7 @@ class MacOSUseAdapter:
         if not api_key:
             return None
 
-        model = self._select_model(transcript)
+        model = self._select_model(transcript, active_app_name=active_app_name)
         prompt = self._build_openai_prompt(
             transcript=transcript,
             active_app_name=active_app_name,
@@ -210,26 +227,47 @@ class MacOSUseAdapter:
                 if not isinstance(content, str):
                     return None
                 parsed = json.loads(content)
-                actions = self._coerce_actions(parsed.get("actions", []))
+                actions, warnings = self._coerce_actions(parsed.get("actions", []))
                 if not actions:
+                    if warnings:
+                        return AdapterResult(
+                            actions=[
+                                Action(
+                                    id="a1",
+                                    kind="wait",
+                                    timeout_ms=1000,
+                                    expected_outcome="Awaiting user clarification",
+                                )
+                            ],
+                            confidence=0.2,
+                            summary="Unable to parse safe actions from planner output",
+                            warnings=warnings,
+                            recovery_guidance="Try a shorter command or mention the target app and field explicitly.",
+                        )
                     return None
 
                 confidence = self._clamp_confidence(parsed.get("confidence"))
                 summary = str(parsed.get("summary") or "LLM generated plan")
-                return AdapterResult(actions=actions, confidence=confidence, summary=summary)
+                return AdapterResult(actions=actions, confidence=confidence, summary=summary, warnings=warnings)
         except Exception:
             return None
 
-    def _coerce_actions(self, raw_actions: list[dict[str, Any]]) -> list[Action]:
+    def _coerce_actions(self, raw_actions: list[dict[str, Any]]) -> tuple[list[Action], list[str]]:
         actions: list[Action] = []
+        warnings: list[str] = []
         for idx, raw in enumerate(raw_actions, start=1):
             if not isinstance(raw, dict):
+                warnings.append(f"Action #{idx} is not an object")
+                continue
+            kind = str(raw.get("kind") or "").strip()
+            if kind not in self._allowed_action_kinds:
+                warnings.append(f"Rejected unknown action kind '{kind or 'missing'}' at index {idx}")
                 continue
             try:
                 actions.append(
                     Action(
                         id=str(raw.get("id") or f"a{idx}"),
-                        kind=str(raw.get("kind") or "type"),
+                        kind=kind,  # type: ignore[arg-type]
                         target=cast_optional_str(raw.get("target")),
                         text=cast_optional_str(raw.get("text")),
                         key_combo=cast_optional_str(raw.get("key_combo")),
@@ -239,15 +277,18 @@ class MacOSUseAdapter:
                         expected_outcome=cast_optional_str(raw.get("expected_outcome")),
                     )
                 )
-            except Exception:
+            except Exception as exc:
+                warnings.append(f"Rejected invalid action at index {idx}: {exc}")
                 continue
-        return actions
+        return actions, warnings
 
     def _build_openai_prompt(
         self, *, transcript: str, active_app_name: str | None, ax_tree_summary: str | None
     ) -> str:
         app_name = active_app_name or "Unknown"
         ax_preview = (ax_tree_summary or "")[:3500]
+        app_pack = self._app_prompt_pack(app_name)
+        vendor_rules = self._important_rules[:2400] if self._important_rules else ""
         return (
             "Plan safe macOS actions for this user request.\n"
             "Return strictly JSON with shape: "
@@ -256,13 +297,32 @@ class MacOSUseAdapter:
             f"Active app: {app_name}\n"
             f"User transcript: {transcript}\n"
             f"AX summary: {ax_preview}\n"
+            f"App-specific guidance: {app_pack}\n"
+            f"Safety rules excerpt: {vendor_rules}\n"
         )
 
-    def _select_model(self, transcript: str) -> str:
+    def _select_model(self, transcript: str, *, active_app_name: str | None) -> str:
+        if active_app_name:
+            override = settings.model_overrides.get(active_app_name.lower())
+            if override:
+                return override
         complexity_markers = [" and ", " then ", "after", "before", "reply", "send", "purchase"]
         lower = transcript.lower()
         is_complex = len(lower.split()) > 10 or any(marker in lower for marker in complexity_markers)
         return settings.model_complex if is_complex else settings.model_simple
+
+    def _app_prompt_pack(self, app_name: str) -> str:
+        key = app_name.lower()
+        packs = {
+            "mail": "Prefer semantic compose/reply flows; require confirmation before send.",
+            "gmail": "Focus reply box detection and avoid pressing send without explicit user confirmation.",
+            "slack": "Prioritize active thread composer; avoid posting to wrong channel.",
+            "safari": "Use cmd+l for address bar and confirm page load target.",
+            "google chrome": "Use cmd+l for omnibox and verify URL matches intent.",
+            "finder": "Prefer menu actions for create/rename/move and avoid destructive operations by default.",
+            "calendar": "Use event title/date/time verification before final save.",
+        }
+        return packs.get(key, "Use safest deterministic actions and avoid irreversible operations.")
 
     @staticmethod
     def _clamp_confidence(value: Any) -> float:

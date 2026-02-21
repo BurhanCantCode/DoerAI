@@ -61,12 +61,33 @@ enum ExecutionStatus: String, Codable {
     case partial
 }
 
+enum ActionExecutionStatus: String, Codable {
+    case success
+    case failure
+    case skipped
+}
+
+struct ActionExecutionRecord: Codable, Hashable {
+    let id: String
+    let status: ActionExecutionStatus
+    let errorCode: String?
+    let latencyMs: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case status
+        case errorCode = "error_code"
+        case latencyMs = "latency_ms"
+    }
+}
+
 struct ExecutionResult: Codable {
     let status: ExecutionStatus
     let completedActions: [String]
     let failedActionId: String?
     let reason: String?
     let recoverySuggestion: String?
+    let actionResults: [ActionExecutionRecord]
 
     enum CodingKeys: String, CodingKey {
         case status
@@ -74,5 +95,46 @@ struct ExecutionResult: Codable {
         case failedActionId = "failed_action_id"
         case reason
         case recoverySuggestion = "recovery_suggestion"
+        case actionResults = "action_results"
+    }
+}
+
+struct SessionTelemetryEvent: Codable {
+    let sessionId: String
+    let timestamp: String
+    let stage: String
+    let app: String?
+    let actionKind: String?
+    let status: String
+    let latencyMs: Int?
+    let errorCode: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case timestamp
+        case stage
+        case app
+        case actionKind = "action_kind"
+        case status
+        case latencyMs = "latency_ms"
+        case errorCode = "error_code"
+    }
+}
+
+struct SafetyDecisionRecord: Codable, Identifiable, Hashable {
+    let id: String
+    let sessionId: String
+    let category: String
+    let decision: String
+    let timestamp: String
+    let approvalMode: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case sessionId = "session_id"
+        case category
+        case decision
+        case timestamp
+        case approvalMode = "approval_mode"
     }
 }

@@ -10,18 +10,40 @@ protocol ExecutionEngine {
 final class ActionExecutor: ExecutionEngine {
     func execute(plan: ActionPlan) async -> ExecutionResult {
         var completed: [String] = []
+        var actionResults: [ActionExecutionRecord] = []
         for action in plan.actions {
+            let start = Date()
             do {
                 try execute(action)
                 completed.append(action.id)
+                let latencyMs = elapsedMillis(since: start)
+                actionResults.append(
+                    ActionExecutionRecord(
+                        id: action.id,
+                        status: .success,
+                        errorCode: nil,
+                        latencyMs: latencyMs
+                    )
+                )
                 Logger.info("Executed action \(action.id): \(action.kind.rawValue)")
             } catch {
+                let latencyMs = elapsedMillis(since: start)
+                let code = errorCode(from: error)
+                actionResults.append(
+                    ActionExecutionRecord(
+                        id: action.id,
+                        status: .failure,
+                        errorCode: code,
+                        latencyMs: latencyMs
+                    )
+                )
                 return ExecutionResult(
                     status: .failure,
                     completedActions: completed,
                     failedActionId: action.id,
                     reason: error.localizedDescription,
-                    recoverySuggestion: "Retry command"
+                    recoverySuggestion: "Retry command",
+                    actionResults: actionResults
                 )
             }
         }
@@ -31,7 +53,8 @@ final class ActionExecutor: ExecutionEngine {
             completedActions: completed,
             failedActionId: nil,
             reason: nil,
-            recoverySuggestion: nil
+            recoverySuggestion: nil,
+            actionResults: actionResults
         )
     }
 
@@ -46,14 +69,31 @@ final class ActionExecutor: ExecutionEngine {
         case .runAppleScript:
             try runAppleScript(action.text ?? action.target ?? "")
         case .wait:
-            Thread.sleep(forTimeInterval: max(0.05, Double(action.timeoutMs) / 1000.0))
+            try wait(action)
         case .click:
-            try clickTarget(action.target)
+            try withRetry { try clickTarget(action.target) }
         case .scroll:
             try scrollTarget(action.target)
         case .selectMenuItem:
-            try selectMenuItem(action.target)
+            try withRetry { try selectMenuItem(action.target) }
         }
+    }
+
+    private func wait(_ action: AgentAction) throws {
+        let timeout = max(0.05, Double(action.timeoutMs) / 1000.0)
+        guard let target = action.target, !target.isEmpty else {
+            Thread.sleep(forTimeInterval: timeout)
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isElementPresent(target) {
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.08)
+        }
+        throw ActionExecutionError.elementNotFound("Wait condition timed out for '\(target)'")
     }
 
     private func openApp(_ action: AgentAction) throws {
@@ -354,39 +394,126 @@ final class ActionExecutor: ExecutionEngine {
         maxNodes: Int
     ) -> AXUIElement? {
         let needle = target.lowercased()
+        let tokens = needle
+            .split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
+            .map(String.init)
+            .filter { !$0.isEmpty }
         var queue: [(AXUIElement, Int)] = [(root, 0)]
         var visited = 0
+        var best: (element: AXUIElement, score: Int, depth: Int, order: Int)?
+        var order = 0
 
         while !queue.isEmpty, visited < maxNodes {
             let (element, depth) = queue.removeFirst()
             visited += 1
+            order += 1
 
-            if elementMatches(element, needle: needle) {
-                return element
+            let score = elementScore(element, needle: needle, tokens: tokens)
+            if score > 0 {
+                if let current = best {
+                    if score > current.score || (score == current.score && depth < current.depth) || (score == current.score && depth == current.depth && order < current.order) {
+                        best = (element, score, depth, order)
+                    }
+                } else {
+                    best = (element, score, depth, order)
+                }
             }
 
             guard depth < maxDepth else { continue }
             if let children = copyAttribute(element, attribute: kAXChildrenAttribute as CFString) as? [AnyObject] {
-                queue.append(contentsOf: children.map { ($0 as! AXUIElement, depth + 1) })
+                for child in children {
+                    queue.append((child as! AXUIElement, depth + 1))
+                }
             }
         }
-        return nil
+
+        if best != nil {
+            Logger.info("AX matcher chose best score \(best?.score ?? 0) for target '\(target)'")
+        }
+        return best?.element
     }
 
-    private func elementMatches(_ element: AXUIElement, needle: String) -> Bool {
-        let fields: [CFString] = [
-            kAXTitleAttribute as CFString,
-            kAXDescriptionAttribute as CFString,
-            kAXValueAttribute as CFString,
-            kAXRoleAttribute as CFString,
-            kAXRoleDescriptionAttribute as CFString,
+    private func elementScore(_ element: AXUIElement, needle: String, tokens: [String]) -> Int {
+        let fields: [(CFString, Int)] = [
+            (kAXTitleAttribute as CFString, 8),
+            (kAXDescriptionAttribute as CFString, 5),
+            (kAXValueAttribute as CFString, 4),
+            (kAXRoleAttribute as CFString, 3),
+            (kAXRoleDescriptionAttribute as CFString, 2),
         ]
-        for field in fields {
-            if let value = copyAttribute(element, attribute: field), String(describing: value).lowercased().contains(needle) {
-                return true
+
+        var score = 0
+        for (field, weight) in fields {
+            guard let value = copyAttribute(element, attribute: field) else { continue }
+            let text = String(describing: value).lowercased()
+            if text.contains(needle) {
+                score += weight * 2
+            }
+            for token in tokens where text.contains(token) {
+                score += weight
             }
         }
-        return false
+        if let enabled = copyAttribute(element, attribute: kAXEnabledAttribute as CFString) as? Bool {
+            score += enabled ? 2 : -2
+        }
+        return score
+    }
+
+    private func isElementPresent(_ target: String) -> Bool {
+        guard AXIsProcessTrusted() else { return false }
+        let systemWide = AXUIElementCreateSystemWide()
+        guard let focusedAppAny = copyAttribute(systemWide, attribute: kAXFocusedApplicationAttribute as CFString) else {
+            return false
+        }
+        let focusedApp = focusedAppAny as! AXUIElement
+        let root: AXUIElement
+        if let windowAny = copyAttribute(focusedApp, attribute: kAXFocusedWindowAttribute as CFString) {
+            root = windowAny as! AXUIElement
+        } else {
+            root = focusedApp
+        }
+        return findElement(containing: target, in: root, maxDepth: 7, maxNodes: 500) != nil
+    }
+
+    private func withRetry<T>(
+        maxAttempts: Int = 3,
+        baseDelay: TimeInterval = 0.12,
+        operation: () throws -> T
+    ) throws -> T {
+        var attempt = 0
+        while true {
+            do {
+                return try operation()
+            } catch {
+                attempt += 1
+                let message = error.localizedDescription.lowercased()
+                let shouldRetry = message.contains("element not found") || message.contains("interaction failed")
+                if !shouldRetry || attempt >= maxAttempts {
+                    throw error
+                }
+                let delay = min(0.8, baseDelay * pow(2.0, Double(attempt - 1)))
+                Thread.sleep(forTimeInterval: delay)
+            }
+        }
+    }
+
+    private func elapsedMillis(since start: Date) -> Int {
+        Int(max(0, Date().timeIntervalSince(start) * 1000.0))
+    }
+
+    private func errorCode(from error: Error) -> String {
+        if let local = error as? LocalizedError, let description = local.errorDescription {
+            if description.contains("Permission") {
+                return "permission_denied"
+            }
+            if description.contains("Element not found") {
+                return "element_not_found"
+            }
+            if description.contains("AppleScript") {
+                return "applescript_failed"
+            }
+        }
+        return "execution_error"
     }
 }
 
