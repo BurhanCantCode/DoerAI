@@ -35,3 +35,4 @@ dist/
 agent/build/
 agent/dist/
 agent/*.spec
+.vercel
