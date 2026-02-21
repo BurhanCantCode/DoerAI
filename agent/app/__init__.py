@@ -1,0 +1,1 @@
+"""Orange sidecar application package."""
