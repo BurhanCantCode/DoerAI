@@ -12,9 +12,6 @@ export const metadata: Metadata = {
   openGraph: {
     images: ["/orange_og_image.png"],
   },
-  icons: {
-    icon: "/orange_favicon.png",
-  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
