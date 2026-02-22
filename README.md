@@ -60,6 +60,7 @@ Notes:
 ### Required environment
 
 - `APPLE_DEVELOPER_ID_APPLICATION` (Developer ID Application certificate name)
+- `APPLE_DEVELOPER_ID_INSTALLER` (Developer ID Installer certificate name)
 - `APPLE_NOTARY_PROFILE` (recommended) or:
   - `APPLE_ID`
   - `APPLE_TEAM_ID`
@@ -78,8 +79,8 @@ Optional:
 
 This performs:
 1. Sidecar bundle build (`PyInstaller`) and app bundle assembly.
-2. Code signing (app + nested sidecar + DMG).
-3. Notarization submit/wait + stapling.
+2. Code signing (app + nested sidecar + DMG + PKG).
+3. Notarization submit/wait + stapling for DMG and PKG.
 4. Sparkle appcast generation.
 
 ## Release Checklist

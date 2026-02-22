@@ -43,11 +43,10 @@ struct OrangeApp: App {
             Color.clear
                 .frame(width: 1, height: 1)
                 .onAppear {
-                    // Hide the scaffold window — only needed for .sheet() modals
+                    // Hide the scaffold window while keeping it available for .sheet() modals
                     DispatchQueue.main.async {
                         for window in NSApplication.shared.windows {
                             if window.title == "Orange" && !(window is NSPanel) {
-                                window.setFrame(.zero, display: false)
                                 window.orderOut(nil)
                             }
                         }

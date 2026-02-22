@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Logger.info("Orange app launched")
+        // Prevent app from terminating when windows are hidden
+        NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
     }
 

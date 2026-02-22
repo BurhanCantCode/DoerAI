@@ -3,6 +3,7 @@ set -euo pipefail
 
 required_vars=(
   APPLE_DEVELOPER_ID_APPLICATION
+  APPLE_DEVELOPER_ID_INSTALLER
   SPARKLE_BASE_URL
 )
 

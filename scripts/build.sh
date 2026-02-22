@@ -8,8 +8,10 @@ VERSION="${ORANGE_VERSION:-0.9.0-beta.1}"
 DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/${APP_NAME}.app"
 DMG_PATH="$DIST_DIR/${APP_NAME}-${VERSION}.dmg"
+PKG_PATH="$DIST_DIR/${APP_NAME}-${VERSION}.pkg"
 BIN_PATH="$ROOT_DIR/apps/desktop/.build/release/${APP_EXECUTABLE}"
 SIDECAR_DIR="$ROOT_DIR/agent/dist/sidecar_server"
+ENTITLEMENTS_PATH="$ROOT_DIR/apps/desktop/Entitlements.plist"
 
 mkdir -p "$DIST_DIR"
 
@@ -63,6 +65,10 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
   <string>${VERSION}</string>
   <key>CFBundleExecutable</key>
   <string>${APP_EXECUTABLE}</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>LSMinimumSystemVersion</key>
@@ -91,7 +97,12 @@ if [[ -n "${APPLE_DEVELOPER_ID_APPLICATION:-}" ]]; then
     codesign --force --deep --options runtime --sign "$APPLE_DEVELOPER_ID_APPLICATION" "$APP_DIR/Contents/Resources/sidecar"
   fi
   echo "[build] Code signing app bundle..."
-  codesign --force --deep --options runtime --sign "$APPLE_DEVELOPER_ID_APPLICATION" "$APP_DIR"
+  if [[ -f "$ENTITLEMENTS_PATH" ]]; then
+    codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS_PATH" --sign "$APPLE_DEVELOPER_ID_APPLICATION" "$APP_DIR"
+  else
+    echo "[build] Warning: entitlements file missing at $ENTITLEMENTS_PATH"
+    codesign --force --deep --options runtime --sign "$APPLE_DEVELOPER_ID_APPLICATION" "$APP_DIR"
+  fi
 else
   echo "[build] APPLE_DEVELOPER_ID_APPLICATION not set. Skipping code sign."
 fi
@@ -117,6 +128,22 @@ if [[ -n "${APPLE_DEVELOPER_ID_APPLICATION:-}" ]]; then
   codesign --force --sign "$APPLE_DEVELOPER_ID_APPLICATION" "$DMG_PATH"
 fi
 
+echo "[build] Creating PKG..."
+rm -f "$PKG_PATH"
+PKGBUILD_ARGS=(
+  --component "$APP_DIR"
+  --install-location "/Applications"
+  --identifier "ai.orange.desktop"
+  --version "$VERSION"
+)
+if [[ -n "${APPLE_DEVELOPER_ID_INSTALLER:-}" ]]; then
+  PKGBUILD_ARGS+=(--sign "$APPLE_DEVELOPER_ID_INSTALLER")
+else
+  echo "[build] APPLE_DEVELOPER_ID_INSTALLER not set. Building unsigned PKG."
+fi
+pkgbuild "${PKGBUILD_ARGS[@]}" "$PKG_PATH"
+
 echo "[build] Build complete:"
 echo "  app: $APP_DIR"
 echo "  dmg: $DMG_PATH"
+echo "  pkg: $PKG_PATH"
