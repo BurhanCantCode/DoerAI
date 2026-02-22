@@ -53,6 +53,67 @@ struct PulsingDot: View {
     }
 }
 
+struct AudioWaveformView: View {
+    @State private var animate = false
+    let color: Color
+
+    init(color: Color = .red) {
+        self.color = color
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<3, id: \.self) { index in
+                Capsule()
+                    .fill(color)
+                    .frame(width: 3, height: animate ? barHeight(for: index) : 4)
+                    .animation(
+                        .easeInOut(duration: 0.4 + Double(index) * 0.15)
+                            .repeatForever(autoreverses: true),
+                        value: animate
+                    )
+            }
+        }
+        .frame(height: 16)
+        .onAppear { animate = true }
+    }
+
+    private func barHeight(for index: Int) -> CGFloat {
+        switch index {
+        case 0: return 12
+        case 1: return 16
+        case 2: return 10
+        default: return 8
+        }
+    }
+}
+
+struct NotchProgressBar: View {
+    @State private var offset: CGFloat = -1
+
+    var body: some View {
+        GeometryReader { geo in
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [.orange.opacity(0), .orange, .orange.opacity(0)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: geo.size.width * 0.4, height: 2)
+                .offset(x: offset * geo.size.width)
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                        offset = 0.6
+                    }
+                }
+        }
+        .frame(height: 2)
+        .clipped()
+    }
+}
+
 struct NotchButton: View {
     let title: String
     let color: Color

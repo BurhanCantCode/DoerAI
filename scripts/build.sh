@@ -73,6 +73,10 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
   <string>Orange transcribes your spoken command into text for automation.</string>
   <key>NSAppleEventsUsageDescription</key>
   <string>Orange uses Apple Events to automate actions in your apps.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Orange captures screen context to understand what you are looking at.</string>
+  <key>LSUIElement</key>
+  <true/>
 </dict>
 </plist>
 EOF
@@ -103,6 +107,7 @@ if [[ -f "$APP_DIR/Contents/Resources/AppIcon.icns" ]]; then
   cp "$APP_DIR/Contents/Resources/AppIcon.icns" "$MOUNT_DIR/.VolumeIcon.icns"
   SetFile -a C "$MOUNT_DIR" 2>/dev/null || true
 fi
+ln -s /Applications "$MOUNT_DIR/Applications"
 hdiutil detach "$MOUNT_DIR" -quiet
 hdiutil convert "$DMG_RW" -format UDZO -o "$DMG_PATH"
 rm -f "$DMG_RW"

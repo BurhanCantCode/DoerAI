@@ -11,38 +11,93 @@ struct APIKeySetupView: View {
     @State private var isValidating = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 18) {
+            // Orange accent line
+            Capsule()
+                .fill(Color.orange)
+                .frame(width: 32, height: 3)
+
+            Text("ORANGE")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(.orange)
+                .tracking(3)
+
             Text("Anthropic API Key")
                 .font(.title2.weight(.semibold))
-            Text("Orange uses your own Anthropic key for planning and verification. Your key stays in macOS Keychain.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+
+            HStack(spacing: 6) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.green)
+                Text("Your key stays in macOS Keychain. Never sent to Orange servers.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             SecureField("sk-ant-...", text: $apiKey)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14, design: .monospaced))
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(white: 0.1))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
 
-            HStack(spacing: 8) {
-                Button(isValidating ? "Validating..." : "Validate Key") {
+            HStack(spacing: 10) {
+                Button {
                     Task { await validate() }
+                } label: {
+                    HStack(spacing: 4) {
+                        if isValidating {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(isValidating ? "Validating..." : "Validate Key")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(Capsule().fill(Color.white.opacity(0.12)))
                 }
+                .buttonStyle(.plain)
                 .disabled(isValidating || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(isValidating || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
 
-                Button(existingKeyPresent ? "Update Key" : "Save Key") {
+                Button {
                     onSave(apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
+                } label: {
+                    Text(existingKeyPresent ? "Update Key" : "Save Key")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(Color.orange))
                 }
+                .buttonStyle(.plain)
                 .disabled(!validationIsValid)
+                .opacity(!validationIsValid ? 0.5 : 1)
 
                 Spacer()
             }
 
             if !validationMessage.isEmpty {
-                Text(validationMessage)
-                    .font(.caption)
-                    .foregroundStyle(validationIsValid ? .green : .orange)
+                HStack(spacing: 4) {
+                    Image(systemName: validationIsValid ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .font(.system(size: 11))
+                    Text(validationMessage)
+                        .font(.caption)
+                }
+                .foregroundStyle(validationIsValid ? .green : .orange)
             }
         }
-        .padding(20)
+        .padding(24)
         .frame(width: 520)
+        .preferredColorScheme(.dark)
     }
 
     private func validate() async {

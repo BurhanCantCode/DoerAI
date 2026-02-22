@@ -3,7 +3,7 @@ const latestRelease = {
   publishedAt: "2026-02-21",
   dmgName: "Orange-0.9.0-beta.1.dmg",
   sha256: "f3c4b1989a6d1ed0df8ac7d94730c3eb6cc4ef6f0933f1f0e42d7f0d8e6c9a81",
-  size: "182 MB"
+  size: "12 MB"
 };
 
 export default function DownloadPage() {

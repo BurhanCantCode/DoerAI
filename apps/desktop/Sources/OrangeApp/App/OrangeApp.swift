@@ -43,6 +43,16 @@ struct OrangeApp: App {
             Color.clear
                 .frame(width: 1, height: 1)
                 .onAppear {
+                    // Hide the scaffold window — only needed for .sheet() modals
+                    DispatchQueue.main.async {
+                        for window in NSApplication.shared.windows {
+                            if window.title == "Orange" && !(window is NSPanel) {
+                                window.setFrame(.zero, display: false)
+                                window.orderOut(nil)
+                            }
+                        }
+                    }
+
                     refreshPermissionStatus()
                     sidecarManager.startIfNeeded(apiKey: credentialManager.loadAnthropicAPIKey())
                     refreshOnboardingGate()
@@ -55,6 +65,8 @@ struct OrangeApp: App {
                         onPress: { handleStart() },
                         onRelease: { handleStop() }
                     )
+
+                    registerMenuBarObservers()
                 }
                 .onDisappear {
                     OverlayWindow.shared.hide()
@@ -285,6 +297,37 @@ struct OrangeApp: App {
             "Permissions: accessibility=\(permission.accessibility), mic=\(permission.microphone), screen=\(permission.screenRecording)",
             "Sidecar healthy: \(appState.sidecarHealthy)"
         ].joined(separator: "\n")
+    }
+
+    private func registerMenuBarObservers() {
+        NotificationCenter.default.addObserver(
+            forName: .orangeShowOverlay, object: nil, queue: .main
+        ) { [self] _ in
+            Task { @MainActor in
+                OverlayWindow.shared.show()
+                appState.overlayExpanded = true
+                OverlayWindow.shared.setMode(.expanded)
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .orangeShowAPIKeySetup, object: nil, queue: .main
+        ) { _ in
+            showAPIKeySetup = true
+        }
+        NotificationCenter.default.addObserver(
+            forName: .orangeShowPermissions, object: nil, queue: .main
+        ) { _ in
+            refreshPermissionStatus()
+            showOnboarding = true
+        }
+        NotificationCenter.default.addObserver(
+            forName: .orangeShowDiagnostics, object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in
+                await loadDiagnostics()
+                showDiagnostics = true
+            }
+        }
     }
 
     @ViewBuilder

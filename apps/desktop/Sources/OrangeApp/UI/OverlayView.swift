@@ -9,9 +9,18 @@ struct OverlayView: View {
 
     @State private var isHovered = false
     @State private var collapseTask: Task<Void, Never>?
+    @State private var pillBounce = false
 
     private var isExpanded: Bool {
         appState.overlayExpanded || isHovered
+    }
+
+    private var isActive: Bool {
+        appState.state != .idle
+    }
+
+    private var isProcessing: Bool {
+        [SessionState.planning, .transcribing, .executing, .verifying].contains(appState.state)
     }
 
     var body: some View {
@@ -27,9 +36,24 @@ struct OverlayView: View {
         .clipShape(NotchShape(expanded: isExpanded))
         .background(
             NotchShape(expanded: isExpanded)
-                .fill(Color.black)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.black, Color(white: 0.07)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
         )
+        .overlay(
+            NotchShape(expanded: isExpanded)
+                .stroke(
+                    isExpanded ? Color.orange.opacity(0.3) : Color.clear,
+                    lineWidth: 1
+                )
+        )
+        .scaleEffect(pillBounce ? 1.03 : 1.0)
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)
+        .animation(.spring(response: 0.2, dampingFraction: 0.5), value: pillBounce)
         .onHover { hovering in
             isHovered = hovering
             if hovering {
@@ -40,6 +64,14 @@ struct OverlayView: View {
         }
         .onChange(of: appState.state) { _, newState in
             collapseTask?.cancel()
+
+            // Bounce the pill on state change
+            if !isExpanded {
+                pillBounce = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    pillBounce = false
+                }
+            }
 
             let activeStates: Set<SessionState> = [
                 .listening, .transcribing, .planning,
@@ -66,9 +98,17 @@ struct OverlayView: View {
 
     private var collapsedView: some View {
         HStack(spacing: 6) {
-            Circle()
-                .fill(colorForState(appState.state))
-                .frame(width: 8, height: 8)
+            if appState.state == .listening {
+                AudioWaveformView(color: .red)
+            } else {
+                Circle()
+                    .fill(colorForState(appState.state))
+                    .frame(width: 8, height: 8)
+                    .shadow(
+                        color: isActive ? colorForState(appState.state).opacity(0.6) : .clear,
+                        radius: 4
+                    )
+            }
             if appState.state != .idle {
                 Text(appState.statusText)
                     .font(.system(size: 11, weight: .medium))
@@ -84,21 +124,33 @@ struct OverlayView: View {
 
     private var expandedView: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // Progress bar for processing states
+            if isProcessing {
+                NotchProgressBar()
+                    .padding(.horizontal, -16)
+            }
+
             // Status bar
             HStack {
-                Circle()
-                    .fill(colorForState(appState.state))
-                    .frame(width: 10, height: 10)
+                if appState.state == .listening {
+                    AudioWaveformView(color: .red)
+                } else {
+                    Circle()
+                        .fill(colorForState(appState.state))
+                        .frame(width: 10, height: 10)
+                        .shadow(color: colorForState(appState.state).opacity(0.5), radius: 3)
+                }
                 Text(appState.statusText)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
+                    .contentTransition(.numericText())
                 Spacer()
                 Text(appState.state.rawValue.uppercased())
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.5))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Capsule().fill(.white.opacity(0.1)))
+                    .background(Capsule().fill(.white.opacity(0.08)))
             }
 
             // Transcript
@@ -177,6 +229,12 @@ struct OverlayView: View {
                 } else {
                     NotchButton(title: "Start", color: .orange, action: onStart)
                 }
+
+                Spacer()
+
+                Text("\u{2318}\u{21E7}O")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.25))
             }
         }
         .padding(.top, NotchGeometry.hasNotch ? NotchGeometry.notchHeight + 4 : 10)
