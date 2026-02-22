@@ -11,8 +11,7 @@ struct CredentialManager {
     func saveAnthropicAPIKey(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        Keychain.save(trimmed, for: anthropicKeyAccount)
-        return true
+        return Keychain.save(trimmed, for: anthropicKeyAccount)
     }
 
     func resetAnthropicAPIKey() {

@@ -112,8 +112,11 @@ struct APIKeySetupView: View {
     }
 
     private func validate() async {
+        guard !isValidating else { return }
         isValidating = true
         validationIsValid = false
+        validationMessage = ""
+        defer { isValidating = false }
         let result = await onValidate(normalizedKey)
         validationIsValid = result.valid
         if result.valid {
@@ -121,6 +124,5 @@ struct APIKeySetupView: View {
         } else {
             validationMessage = result.reason ?? "Key validation failed."
         }
-        isValidating = false
     }
 }

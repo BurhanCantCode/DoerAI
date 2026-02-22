@@ -272,18 +272,25 @@ struct OrangeApp: App {
                 )
             )
         } catch {
-            if let urlError = error as? URLError, urlError.code == .timedOut {
-                return ProviderValidateResponse(
-                    provider: "anthropic",
-                    valid: false,
-                    reason: "Validation timed out. You can still save the key and try again.",
-                    accountHint: nil
-                )
+            let reason: String
+            if let urlError = error as? URLError {
+                switch urlError.code {
+                case .timedOut:
+                    reason = "Validation timed out. You can still save the key and it will be used when the app is ready."
+                case .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet:
+                    reason = "Could not reach the validation service. You can still save the key and it will be validated when the app starts."
+                case .cancelled:
+                    reason = "Validation was cancelled."
+                default:
+                    reason = "Network error during validation. You can still save the key."
+                }
+            } else {
+                reason = "Validation error: \(error.localizedDescription)"
             }
             return ProviderValidateResponse(
                 provider: "anthropic",
                 valid: false,
-                reason: error.localizedDescription,
+                reason: reason,
                 accountHint: nil
             )
         }
@@ -292,7 +299,15 @@ struct OrangeApp: App {
     private func saveAPIKey(_ key: String) {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard credentialManager.saveAnthropicAPIKey(trimmed) else {
-            appState.statusText = "Failed to save API key"
+            appState.statusText = "Failed to save API key to Keychain"
+            Logger.error("saveAPIKey: Keychain write failed for provided key")
+            return
+        }
+
+        // Read-back verification: confirm the key actually persisted before proceeding.
+        guard let readBack = credentialManager.loadAnthropicAPIKey(), readBack == trimmed else {
+            appState.statusText = "API key could not be read back from Keychain — please try again"
+            Logger.error("saveAPIKey: Keychain read-back mismatch after write")
             return
         }
 
@@ -362,6 +377,13 @@ struct OrangeApp: App {
 
     private func loadDiagnostics() async {
         let permission = permissionsManager.currentStatus()
+        let keyHint: String
+        if let key = credentialManager.loadAnthropicAPIKey() {
+            let tail = key.count >= 4 ? String(key.suffix(4)) : "****"
+            keyHint = "present (…\(tail))"
+        } else {
+            keyHint = "missing"
+        }
         let providerLine: String
         do {
             let providerStatus = try await plannerClient.providerStatus()
@@ -372,6 +394,7 @@ struct OrangeApp: App {
 
         appState.diagnosticsText = [
             providerLine,
+            "Keychain key: \(keyHint)",
             "Gate: \(appState.onboardingGate.rawValue)",
             "Permissions: accessibility=\(permission.accessibility), mic=\(permission.microphone), screen=\(permission.screenRecording)",
             "Sidecar healthy: \(appState.sidecarHealthy)"
